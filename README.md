@@ -1,60 +1,56 @@
-# 个人学习修改版
-**学习自用，请勿乱用售卖或咨询，任何风险后果自负**
-
-添加自用学习ms脚本，借用noesis的命令行接口。  
-（ ms脚本迁移至 [Motion Reverse](https://github.com/AniBullet/MotionReverse/blob/main/ms/RE_AnimTools_BulletS.ms) ）  
-py脚本当前新增支持 mhws 公测版动作文件，  
-后面看佬更新正式版底层解析再优化。
-
-Wiki：https://github.com/AniBullet/fmt_RE_MESH-Noesis-Plugin-BulletS/wiki
-
 # fmt_RE_MESH-Noesis-Plugin
-A plugin for Rich Whitehouse's Noesis to import and export RE Engine meshes, textures and animations
 
-## SUPPORTED GAMES
-- Resident Evil 2 Remake
-- Resident Evil 3 Remake
-- Resident Evil 4 Remake
-- Resident Evil 7 (Ray Tracing)
-- Resident Evil 8
-- Devil5月Cry 5
-- Monster Hunter Rise
-- Street Fighter 6
-- ExoPrimal
-- Apollo Justice: Ace Attorney Trilogy
-- Dragon's Dogma 2
+> RE Engine 模型/贴图/动画 Noesis 导入导出插件（个人修改版）
 
+⚠️ **学习自用，请勿售卖或商用，风险自负**
 
-## INSTALLATION:
-Download Noesis from here: https://www.richwhitehouse.com/index.php?content=inc_projects.php&showproject=91
-Once it is installed, navigate to your [Noesis Installation Path]/plugins/python folder and put fmt_RE_MESH.py in there, and re-launch the program.
-Opening a mesh or tex file with Noesis will automatically load it, once the plugin is installed. 
+📖 [Wiki 文档](https://github.com/AniBullet/fmt_RE_MESH-Noesis-Plugin-BulletS/wiki) ｜ 🔧 [BsKeyTools 远端脚本](https://github.com/AniBullet/BsKeyTools)
 
+---
 
-## NOESIS MAXSCRIPT:
-To use the optional Noesis Maxscript (REEM Noesis CMD), you should edit the included .ms file to tell it where your Noesis.exe is. 
-Then you can run the maxscript in 3dsMax with Scripts -> Run Script, and use it to remote-control Noesis as to seamlessly import and export with a GUI inside 3dsmax.
+## ✨ 特性
 
+- 支持 **Monster Hunter Wilds** 正式版动画（`.motlist.992`）
+- 完整的动画压缩算法解码支持
 
-### Tips
-- The plugin supports opening RE Engine SCN files. These files can contain a list of meshes at certain positions, constituting a stage or map
-- The plugin saves the location of your extracted re_chunk_000.pak folder ("Base Directory") for each game in a txt file next to the plugin. Edit this file if it is not correct
-- In the mesh/animation import window, double click ".." to go up a parent directory, or paste in a directory into the text box to go there
-- You can load multiple meshes together in addition to the mesh you first selected. They and their bones will be merged together into the same model
-- When loading a mesh, click the "Select Animation" button to load motlist animations with it, useful for quickly testing rigging
-- You can export an animation with the Noesis `-fbxmultitake` advanced option to separate the animations onto different tracks. Then find the Blender FBX import plugin, open the `io_scene_fbx` folder, locate the `import_fbx.py` find the `# Compute framerate settings section`, change its 25fps to 1, and save. Then change the frame rate from 1 to 60 after importing to Blender
+## 🎮 支持游戏
 
-### For more info on REEM, check out this guide:
-https://residentevilmodding.boards.net/thread/15374/noesis-maxscript-custom-physics-guide
+| 游戏 | 状态 |
+|------|------|
+| Resident Evil 2/3/4/7/8 Remake | ✅ |
+| Devil May Cry 5 | ✅ |
+| Monster Hunter Rise / Wilds | ✅ |
+| Street Fighter 6 | ✅ |
+| Dragon's Dogma 2 | ✅ |
+| ExoPrimal | ✅ |
+| Apollo Justice: Ace Attorney Trilogy | ✅ |
 
+## 📦 安装
 
-### More Info on the plugin:
-https://residentevilmodding.boards.net/thread/13501/exporting-custom-models-dmc5-noesis
+1. 下载 [Noesis](https://www.richwhitehouse.com/index.php?content=inc_projects.php&showproject=91)
+2. 将脚本放入 `[Noesis]/plugins/python/` 目录：
+   - `fmt_RE_Motion_Rel.py` - 动画导入脚本
+   - `fmt_RE_Motion_Rel_AutoLoad.py` - 自动加载版本（可选）
+3. 重启 Noesis
 
+## 💡 使用技巧
 
-### Credits
-Thanks to Gh0stblade for creating the original version of this plugin in 2019
+- 支持 `.motlist` 动画文件的导入
+- 双击 `..` 返回上级目录，或直接粘贴路径跳转
+- 可同时加载多个模型并自动合并骨骼
+- 使用 `-fbxmultitake` 参数可分离多动画轨道导出
 
+## 🔗 相关链接
 
-### Support
-If you have issues with the plugin, create an issue here or join [Modding Haven](https://discord.gg/acCRqRyUB2) and message me on Discord
+- [REEM 使用指南](https://residentevilmodding.boards.net/thread/15374/noesis-maxscript-custom-physics-guide)
+- [插件详细说明](https://residentevilmodding.boards.net/thread/13501/exporting-custom-models-dmc5-noesis)
+
+## 🙏 致谢
+
+- [alphazolam](https://github.com/alphazolam/fmt_RE_MESH-Noesis-Plugin) - 原仓库作者
+- [Gh0stblade](https://github.com/Gh0stblade) - 初版插件作者
+- [RE-Engine-Lib](https://github.com/czastack/RE-Engine-Lib) - 动画压缩算法参考
+
+## 📬 反馈
+
+问题反馈请提交 [Issue](../../issues) 或加入 [Modding Haven](https://discord.gg/acCRqRyUB2)
