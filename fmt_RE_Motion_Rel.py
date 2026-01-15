@@ -2891,7 +2891,9 @@ class motFile:
 				output = NoeQuat3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)).toQuat().transpose()
 			# 0x60000 - LoadQuaternions16Bit
 			elif compression == 0x60000:
-				if self.version >= 993:  # Pragmata+ uses big-endian
+				# MHWilds (motlist 992) and later use big-endian
+				# Earlier versions use little-endian
+				if self.motlist and self.motlist.version >= 992:
 					val = readBytesAsBigEndian(bs, 6)
 					rawVec = [((val >> 0) & 0xFFFF) / 0xFFFF, ((val >> 16) & 0xFFFF) / 0xFFFF, ((val >> 32) & 0xFFFF) / 0xFFFF]
 				else:

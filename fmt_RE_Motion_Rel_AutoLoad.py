@@ -2460,7 +2460,21 @@ def readPackedBitsVec3(packedInt, numBits):
 	return NoeVec3((x, y, z))
 	
 def convertBits(packedInt, numBits):
-	return packedInt / (2**numBits-1)	
+	return packedInt / (2**numBits-1)
+
+def readBytesAsBigEndian(bs, numBytes):
+	"""Read specified number of bytes and assemble as big-endian uint64"""
+	val = 0
+	for j in range(numBytes):
+		val = (val << 8) | bs.readUByte()
+	return val
+
+def readBytesAsBigEndian32(bs, numBytes):
+	"""Read specified number of bytes and assemble as big-endian uint32"""
+	val = 0
+	for j in range(numBytes):
+		val = (val << 8) | bs.readUByte()
+	return val
 
 def skipToNextLine(bs):
 	bs.seek(bs.tell() + 16 - (bs.tell() % 16))
@@ -2535,98 +2549,371 @@ class motFile:
 		compression = flags & 0xFF000
 		if ftype=="pos" or ftype=="scl":
 			defScaleVec = NoeVec3((fDefaultMeshScale, fDefaultMeshScale, fDefaultMeshScale))
+			# 0x00000 - LoadVector3sFull
 			if compression == 0x00000:
 				output = NoeVec3((bs.readFloat(), bs.readFloat(), bs.readFloat())) * defScaleVec
+			# 0x20000 - LoadVector3s5BitA (RE2) / LoadVector3s5BitB (RE3+)
 			elif compression == 0x20000:
 				rawVec = readPackedBitsVec3(bs.readUShort(), 5)
 				if self.version <= 65:
-					output = NoeVec3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.z, unpacks.max.y * rawVec[2] + unpacks.min.z)) * defScaleVec
+					output = NoeVec3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)) * defScaleVec
 				else:
 					output = NoeVec3((unpacks.max.x * rawVec[0] + unpacks.max.w, unpacks.max.y * rawVec[1] + unpacks.min.x, unpacks.max.z * rawVec[2] + unpacks.min.y)) * defScaleVec
+			# 0x21000 - LoadVector3sXAxis16Bit
+			elif compression == 0x21000:
+				data = bs.readUShort()
+				x = unpacks.max.x * (data / 0xFFFF) + unpacks.max.y
+				y = unpacks.max.z
+				z = unpacks.max.w
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x22000 - LoadVector3sYAxis16Bit
+			elif compression == 0x22000:
+				data = bs.readUShort()
+				x = unpacks.max.y
+				y = unpacks.max.x * (data / 0xFFFF) + unpacks.max.z
+				z = unpacks.max.w
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x23000 - LoadVector3sZAxis16Bit
+			elif compression == 0x23000:
+				data = bs.readUShort()
+				x = unpacks.max.y
+				y = unpacks.max.z
+				z = unpacks.max.x * (data / 0xFFFF) + unpacks.max.w
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x24000 - LoadVector3sXYZAxis16Bit
 			elif compression == 0x24000:
-				x = y = z = unpacks.max.x * convertBits(bs.readUShort(), 16) + unpacks.min.x
+				data = bs.readUShort()
+				x = y = z = unpacks.max.x * (data / 0xFFFF) + unpacks.max.w
 				output = NoeVec3((x, y, z)) * defScaleVec
-			elif compression == 0x44000:
-				x = y = z = unpacks.max.x * bs.readFloat() + unpacks.min.x
+			# 0x25000 - LoadVector3sXYAxis8Bit
+			elif compression == 0x25000:
+				x = unpacks.max.x * (bs.readUByte() / 0xFF) + unpacks.max.z
+				y = unpacks.max.y * (bs.readUByte() / 0xFF) + unpacks.max.w
+				z = unpacks.min.x
 				output = NoeVec3((x, y, z)) * defScaleVec
-			elif compression == 0x40000 or (compression == 0x30000 and self.version <= 65):
+			# 0x26000 - LoadVector3sXZAxis8Bit
+			elif compression == 0x26000:
+				x = unpacks.max.x * (bs.readUByte() / 0xFF) + unpacks.max.z
+				y = unpacks.max.w
+				z = unpacks.max.y * (bs.readUByte() / 0xFF) + unpacks.min.x
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x27000 - LoadVector3sYZAxis8Bit
+			elif compression == 0x27000:
+				x = unpacks.max.z
+				y = unpacks.max.x * (bs.readUByte() / 0xFF) + unpacks.max.w
+				z = unpacks.max.y * (bs.readUByte() / 0xFF) + unpacks.min.x
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x30000 - LoadVector3s10BitA (RE2) / LoadVector3s8BitB (RE3+)
+			elif compression == 0x30000:
+				if self.version <= 65:
+					rawVec = readPackedBitsVec3(bs.readUInt(), 10)
+					output = NoeVec3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)) * defScaleVec
+				else:
+					# LoadVector3s8BitB - 3 bytes
+					b0 = bs.readUByte()
+					b1 = bs.readUByte()
+					b2 = bs.readUByte()
+					x = unpacks.max.x * (b0 / 0xFF) + unpacks.max.w
+					y = unpacks.max.y * (b1 / 0xFF) + unpacks.min.x
+					z = unpacks.max.z * (b2 / 0xFF) + unpacks.min.y
+					output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x31000 - LoadVector3sXAxis (RE2) / LoadVector3sXAxis24Bit (RE3+)
+			elif compression == 0x31000:
+				if self.version <= 65:
+					output = NoeVec3((bs.readFloat(), unpacks.max.y, unpacks.max.z)) * defScaleVec
+				else:
+					data = readBytesAsBigEndian32(bs, 3)
+					x = unpacks.max.x * (data / 0xFFFFFF) + unpacks.max.y
+					y = unpacks.max.z
+					z = unpacks.max.w
+					output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x32000 - LoadVector3sYAxis (RE2) / LoadVector3sYAxis24Bit (RE3+)
+			elif compression == 0x32000:
+				if self.version <= 65:
+					output = NoeVec3((unpacks.max.x, bs.readFloat(), unpacks.max.z)) * defScaleVec
+				else:
+					data = readBytesAsBigEndian32(bs, 3)
+					x = unpacks.max.y
+					y = unpacks.max.x * (data / 0xFFFFFF) + unpacks.max.z
+					z = unpacks.max.w
+					output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x33000 - LoadVector3sZAxis (RE2) / LoadVector3sZAxis24Bit (RE3+)
+			elif compression == 0x33000:
+				if self.version <= 65:
+					output = NoeVec3((unpacks.max.x, unpacks.max.y, bs.readFloat())) * defScaleVec
+				else:
+					data = readBytesAsBigEndian32(bs, 3)
+					x = unpacks.max.y
+					y = unpacks.max.z
+					z = unpacks.max.x * (data / 0xFFFFFF) + unpacks.max.w
+					output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x35000 - LoadVector3sYZAxis12Bit
+			elif compression == 0x35000:
+				val = readBytesAsBigEndian32(bs, 3)
+				x = unpacks.max.z
+				y = unpacks.max.x * ((val >> 0) & 0xFFF) / 0xFFF + unpacks.max.w
+				z = unpacks.max.y * ((val >> 12) & 0xFFF) / 0xFFF + unpacks.min.x
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x36000 - LoadVector3sXZAxis12Bit
+			elif compression == 0x36000:
+				val = readBytesAsBigEndian32(bs, 3)
+				x = unpacks.max.x * ((val >> 0) & 0xFFF) / 0xFFF + unpacks.max.z
+				y = unpacks.max.w
+				z = unpacks.max.y * ((val >> 12) & 0xFFF) / 0xFFF + unpacks.min.x
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x37000 - LoadVector3sXYAxis12Bit
+			elif compression == 0x37000:
+				val = readBytesAsBigEndian32(bs, 3)
+				x = unpacks.max.x * ((val >> 0) & 0xFFF) / 0xFFF + unpacks.max.z
+				y = unpacks.max.y * ((val >> 12) & 0xFFF) / 0xFFF + unpacks.max.w
+				z = unpacks.min.x
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x40000 - LoadVector3s10BitB
+			elif compression == 0x40000:
 				rawVec = readPackedBitsVec3(bs.readUInt(), 10)
 				if self.version <= 65:
 					output = NoeVec3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)) * defScaleVec
 				else:
 					output = NoeVec3((unpacks.max.x * rawVec[0] + unpacks.max.w, unpacks.max.y * rawVec[1] + unpacks.min.x, unpacks.max.z * rawVec[2] + unpacks.min.y)) * defScaleVec
+			# 0x41000 - LoadVector3sXAxis
+			elif compression == 0x41000:
+				x = bs.readFloat()
+				y = unpacks.max.y
+				z = unpacks.max.z
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x42000 - LoadVector3sYAxis
+			elif compression == 0x42000:
+				x = unpacks.max.x
+				y = bs.readFloat()
+				z = unpacks.max.z
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x43000 - LoadVector3sZAxis
+			elif compression == 0x43000:
+				x = unpacks.max.x
+				y = unpacks.max.y
+				z = bs.readFloat()
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x44000 - LoadVector3sXYZAxis
+			elif compression == 0x44000:
+				x = y = z = bs.readFloat()
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x45000 - LoadVector3sXYAxis16Bit
+			elif compression == 0x45000:
+				x = unpacks.max.x * (bs.readUShort() / 0xFFFF) + unpacks.max.z
+				y = unpacks.max.y * (bs.readUShort() / 0xFFFF) + unpacks.max.w
+				z = unpacks.min.x
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x46000 - LoadVector3sXZAxis16Bit
+			elif compression == 0x46000:
+				x = unpacks.max.x * (bs.readUShort() / 0xFFFF) + unpacks.max.z
+				y = unpacks.max.w
+				z = unpacks.max.y * (bs.readUShort() / 0xFFFF) + unpacks.min.x
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x47000 - LoadVector3sYZAxis16Bit
+			elif compression == 0x47000:
+				x = unpacks.max.z
+				y = unpacks.max.x * (bs.readUShort() / 0xFFFF) + unpacks.max.w
+				z = unpacks.max.y * (bs.readUShort() / 0xFFFF) + unpacks.min.x
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x50000 - LoadVector3s13Bit
+			elif compression == 0x50000:
+				if self.version <= 65:
+					# RE2 - LoadQuaternions16Bit style (different)
+					rawVec = [convertBits(bs.readUShort(), 16), convertBits(bs.readUShort(), 16), convertBits(bs.readUShort(), 16)]
+					output = NoeVec3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)) * defScaleVec
+				else:
+					# LoadVector3s13Bit - 5 bytes big-endian
+					val = readBytesAsBigEndian(bs, 5)
+					x = unpacks.max.x * ((val >> 0) & 0x1FFF) / 0x1FFF + unpacks.max.w
+					y = unpacks.max.y * ((val >> 13) & 0x1FFF) / 0x1FFF + unpacks.min.x
+					z = unpacks.max.z * ((val >> 26) & 0x1FFF) / 0x1FFF + unpacks.min.y
+					output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x55000 - LoadVector3sXYAxis20Bit
+			elif compression == 0x55000:
+				val = readBytesAsBigEndian(bs, 5)
+				x = unpacks.max.x * ((val >> 0) & 0xFFFFF) / 0xFFFFF + unpacks.max.z
+				y = unpacks.max.y * ((val >> 20) & 0xFFFFF) / 0xFFFFF + unpacks.max.w
+				z = unpacks.min.x
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x56000 - LoadVector3sYZAxis20Bit
+			elif compression == 0x56000:
+				val = readBytesAsBigEndian(bs, 5)
+				x = unpacks.max.z
+				y = unpacks.max.x * ((val >> 0) & 0xFFFFF) / 0xFFFFF + unpacks.max.w
+				z = unpacks.max.y * ((val >> 20) & 0xFFFFF) / 0xFFFFF + unpacks.min.x
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x57000 - LoadVector3sZXAxis20Bit
+			elif compression == 0x57000:
+				val = readBytesAsBigEndian(bs, 5)
+				x = unpacks.max.y * ((val >> 20) & 0xFFFFF) / 0xFFFFF + unpacks.max.z
+				y = unpacks.max.w
+				z = unpacks.max.x * ((val >> 0) & 0xFFFFF) / 0xFFFFF + unpacks.min.x
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x60000 - LoadVector3s16Bit
+			elif compression == 0x60000:
+				val = readBytesAsBigEndian(bs, 6)
+				x = unpacks.max.x * ((val >> 0) & 0xFFFF) / 0xFFFF + unpacks.max.w
+				y = unpacks.max.y * ((val >> 16) & 0xFFFF) / 0xFFFF + unpacks.min.x
+				z = unpacks.max.z * ((val >> 32) & 0xFFFF) / 0xFFFF + unpacks.min.y
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x65000 - LoadVector3sXYAxis24Bit
+			elif compression == 0x65000:
+				val = readBytesAsBigEndian(bs, 6)
+				x = unpacks.max.x * ((val >> 0) & 0xFFFFFF) / 0xFFFFFF + unpacks.max.z
+				y = unpacks.max.y * ((val >> 24) & 0xFFFFFF) / 0xFFFFFF + unpacks.max.w
+				z = unpacks.min.x
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x66000 - LoadVector3sYZAxis24Bit
+			elif compression == 0x66000:
+				val = readBytesAsBigEndian(bs, 6)
+				x = unpacks.max.z
+				y = unpacks.max.x * ((val >> 0) & 0xFFFFFF) / 0xFFFFFF + unpacks.max.w
+				z = unpacks.max.y * ((val >> 24) & 0xFFFFFF) / 0xFFFFFF + unpacks.min.x
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x67000 - LoadVector3sZXAxis24Bit
+			elif compression == 0x67000:
+				val = readBytesAsBigEndian(bs, 6)
+				x = unpacks.max.y * ((val >> 24) & 0xFFFFFF) / 0xFFFFFF + unpacks.max.z
+				y = unpacks.max.w
+				z = unpacks.max.x * ((val >> 0) & 0xFFFFFF) / 0xFFFFFF + unpacks.min.x
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x70000 - LoadVector3s21BitA (RE2) / LoadVector3s18Bit (RE3+)
 			elif compression == 0x70000:
-				rawVec = readPackedBitsVec3(bs.readUInt64(), 21)
-				output = NoeVec3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)) * defScaleVec
+				if self.version <= 65:
+					rawVec = readPackedBitsVec3(bs.readUInt64(), 21)
+					output = NoeVec3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)) * defScaleVec
+				else:
+					# LoadVector3s18Bit - 7 bytes big-endian
+					val = readBytesAsBigEndian(bs, 7)
+					x = unpacks.max.x * ((val >> 0) & 0x3FFFF) / 0x3FFFF + unpacks.max.w
+					y = unpacks.max.y * ((val >> 18) & 0x3FFFF) / 0x3FFFF + unpacks.min.x
+					z = unpacks.max.z * ((val >> 36) & 0x3FFFF) / 0x3FFFF + unpacks.min.y
+					output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x80000 - LoadVector3s21BitB
 			elif compression == 0x80000:
 				rawVec = readPackedBitsVec3(bs.readUInt64(), 21)
-				output = NoeVec3((unpacks.max.x * rawVec[0] + unpacks.max.w, unpacks.max.y * rawVec[1] + unpacks.min.x, unpacks.max.z * rawVec[2] + unpacks.min.y)) * defScaleVec
-			elif (compression == 0x31000 and self.version <= 65) or (compression == 0x41000 and self.version >= 78): #LoadVector3sXAxis
-				output = NoeVec3((bs.readFloat(), unpacks.max.y, unpacks.max.z)) * defScaleVec
-			elif (compression == 0x32000 and self.version <= 65) or (compression == 0x42000 and self.version >= 78): #LoadVector3sYAxis
-				output = NoeVec3((unpacks.max.x, bs.readFloat(), unpacks.max.z)) * defScaleVec
-			elif (compression == 0x33000 and self.version <= 65) or (compression == 0x43000 and self.version >= 78): #LoadVector3sZAxis
-				output = NoeVec3((unpacks.max.x, unpacks.max.y, bs.readFloat())) * defScaleVec
-			elif compression == 0x21000:
-				output = NoeVec3((unpacks.max.x * convertBits(bs.readUShort(), 16) + unpacks.max.y, unpacks.max.z, unpacks.max.w)) * defScaleVec
-			elif compression == 0x22000:
-				output = NoeVec3((unpacks.max.y, unpacks.max.x * convertBits(bs.readUShort(), 16) + unpacks.max.z, unpacks.max.w)) * defScaleVec
-			elif compression == 0x23000:
-				output = NoeVec3((unpacks.max.y, unpacks.max.z, unpacks.max.x * convertBits(bs.readUShort(), 16) + unpacks.max.w)) * defScaleVec
+				if self.version <= 65:
+					output = NoeVec3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)) * defScaleVec
+				else:
+					output = NoeVec3((unpacks.max.x * rawVec[0] + unpacks.max.w, unpacks.max.y * rawVec[1] + unpacks.min.x, unpacks.max.z * rawVec[2] + unpacks.min.y)) * defScaleVec
+			# 0x85000 - LoadVector3sXYAxis (two floats)
+			elif compression == 0x85000:
+				x = bs.readFloat()
+				y = bs.readFloat()
+				z = unpacks.max.z
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x86000 - LoadVector3sYZAxis (two floats)
+			elif compression == 0x86000:
+				x = unpacks.max.x
+				y = bs.readFloat()
+				z = bs.readFloat()
+				output = NoeVec3((x, y, z)) * defScaleVec
+			# 0x87000 - LoadVector3sZXAxis (two floats)
+			elif compression == 0x87000:
+				z = bs.readFloat()
+				y = unpacks.max.y
+				x = bs.readFloat()
+				output = NoeVec3((x, y, z)) * defScaleVec
 			else:
 				print("Unknown", "Translation" if ftype=="pos" else "Scale", "type:", "0x"+'{:02X}'.format(compression))
 				output = NoeVec3((0,0,0)) if ftype=="pos" else NoeVec3((100,100,100))
 		elif ftype=="rot":
-			if compression == 0x00000: #LoadQuaternionsFull
+			# 0x00000 - LoadQuaternionsFull
+			if compression == 0x00000:
 				output = NoeQuat((bs.readFloat(), bs.readFloat(), bs.readFloat(), bs.readFloat())).transpose()
-			elif compression == 0xB0000 or compression == 0xC0000: #LoadQuaternions3Component
-				#rawVec = [bs.readFloat(), bs.readFloat(), bs.readFloat()]
-				#output = NoeQuat((rawVec[0], rawVec[1], rawVec[2], wRot(rawVec))).transpose()
-				output = NoeQuat3((bs.readFloat(), bs.readFloat(), bs.readFloat())).toQuat().transpose()
-			elif compression == 0x20000: #//LoadQuaternions5Bit RE3
+			# 0x20000 - LoadQuaternions5Bit
+			elif compression == 0x20000:
 				rawVec = readPackedBitsVec3(bs.readUShort(), 5)
 				output = NoeQuat3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)).toQuat().transpose()
+			# 0x21000 - LoadQuaternionsXAxis16Bit
 			elif compression == 0x21000:
-				output = NoeQuat3((unpacks.max.x * convertBits(bs.readUShort(), 16) + unpacks.max.y, 0, 0)).toQuat().transpose()
+				x = unpacks.max.x * (bs.readUShort() / 0xFFFF) + unpacks.max.y
+				output = NoeQuat3((x, 0, 0)).toQuat().transpose()
+			# 0x22000 - LoadQuaternionsYAxis16Bit
 			elif compression == 0x22000:
-				output = NoeQuat3((0, unpacks.max.x * convertBits(bs.readUShort(), 16) + unpacks.max.y, 0)).toQuat().transpose()
+				y = unpacks.max.x * (bs.readUShort() / 0xFFFF) + unpacks.max.y
+				output = NoeQuat3((0, y, 0)).toQuat().transpose()
+			# 0x23000 - LoadQuaternionsZAxis16Bit
 			elif compression == 0x23000:
-				output = NoeQuat3((0, 0, unpacks.max.x * convertBits(bs.readUShort(), 16) + unpacks.max.y)).toQuat().transpose()
-			elif compression == 0x30000 and self.version >= 78: #LoadQuaternions8Bit RE3
-				rawVec = [convertBits(bs.readUByte(), 8), convertBits(bs.readUByte(), 8), convertBits(bs.readUByte(), 8)]
-				output = NoeQuat3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)).toQuat().transpose()
+				z = unpacks.max.x * (bs.readUShort() / 0xFFFF) + unpacks.max.y
+				output = NoeQuat3((0, 0, z)).toQuat().transpose()
+			# 0x30000 - LoadQuaternions10Bit (RE2) / LoadQuaternions8Bit (RE3+)
 			elif compression == 0x30000:
+				if self.version <= 65:
+					rawVec = readPackedBitsVec3(bs.readUInt(), 10)
+				else:
+					rawVec = [bs.readUByte() / 0xFF, bs.readUByte() / 0xFF, bs.readUByte() / 0xFF]
+				output = NoeQuat3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)).toQuat().transpose()
+			# 0x31000 - LoadQuaternionsXAxis (RE2) / LoadQuaternionsXAxis24Bit (RE3+)
+			elif compression == 0x31000:
+				if self.version <= 65:
+					output = NoeQuat3((bs.readFloat(), 0, 0)).toQuat().transpose()
+				else:
+					data = readBytesAsBigEndian32(bs, 3)
+					x = unpacks.max.x * (data / 0xFFFFFF) + unpacks.max.y
+					output = NoeQuat3((x, 0, 0)).toQuat().transpose()
+			# 0x32000 - LoadQuaternionsYAxis (RE2) / LoadQuaternionsYAxis24Bit (RE3+)
+			elif compression == 0x32000:
+				if self.version <= 65:
+					output = NoeQuat3((0, bs.readFloat(), 0)).toQuat().transpose()
+				else:
+					data = readBytesAsBigEndian32(bs, 3)
+					y = unpacks.max.x * (data / 0xFFFFFF) + unpacks.max.y
+					output = NoeQuat3((0, y, 0)).toQuat().transpose()
+			# 0x33000 - LoadQuaternionsZAxis (RE2) / LoadQuaternionsZAxis24Bit (RE3+)
+			elif compression == 0x33000:
+				if self.version <= 65:
+					output = NoeQuat3((0, 0, bs.readFloat())).toQuat().transpose()
+				else:
+					data = readBytesAsBigEndian32(bs, 3)
+					z = unpacks.max.x * (data / 0xFFFFFF) + unpacks.max.y
+					output = NoeQuat3((0, 0, z)).toQuat().transpose()
+			# 0x40000 - LoadQuaternions10Bit
+			elif compression == 0x40000:
 				rawVec = readPackedBitsVec3(bs.readUInt(), 10)
 				output = NoeQuat3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)).toQuat().transpose()
-			elif compression == 0x31000 or compression == 0x41000:
+			# 0x41000 - LoadQuaternionsXAxis
+			elif compression == 0x41000:
 				output = NoeQuat3((bs.readFloat(), 0, 0)).toQuat().transpose()
-			elif compression == 0x32000 or compression == 0x42000:
+			# 0x42000 - LoadQuaternionsYAxis
+			elif compression == 0x42000:
 				output = NoeQuat3((0, bs.readFloat(), 0)).toQuat().transpose()
-			elif compression == 0x33000 or compression == 0x43000:
+			# 0x43000 - LoadQuaternionsZAxis
+			elif compression == 0x43000:
 				output = NoeQuat3((0, 0, bs.readFloat())).toQuat().transpose()
-			elif compression == 0x40000: #LoadQuaternions10Bit RE3
-				rawVec = readPackedBitsVec3(bs.readUInt(), 10)
+			# 0x50000 - LoadQuaternions16Bit (RE2) / LoadQuaternions13Bit (RE3+)
+			elif compression == 0x50000:
+				if self.version <= 65:
+					rawVec = [bs.readUShort() / 0xFFFF, bs.readUShort() / 0xFFFF, bs.readUShort() / 0xFFFF]
+				else:
+					val = readBytesAsBigEndian(bs, 5)
+					rawVec = [((val >> 0) & 0x1FFF) / 0x1FFF, ((val >> 13) & 0x1FFF) / 0x1FFF, ((val >> 26) & 0x1FFF) / 0x1FFF]
 				output = NoeQuat3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)).toQuat().transpose()
-			elif compression == 0x50000 and self.version <= 65: #LoadQuaternions16Bit RE2
-				rawVec = [convertBits(bs.readUShort(), 16), convertBits(bs.readUShort(), 16), convertBits(bs.readUShort(), 16)]
+			# 0x60000 - LoadQuaternions16Bit
+			elif compression == 0x60000:
+				# MHWilds (motlist 992) and later use big-endian
+				# Earlier versions use little-endian
+				if self.motlist and self.motlist.version >= 992:
+					val = readBytesAsBigEndian(bs, 6)
+					rawVec = [((val >> 0) & 0xFFFF) / 0xFFFF, ((val >> 16) & 0xFFFF) / 0xFFFF, ((val >> 32) & 0xFFFF) / 0xFFFF]
+				else:
+					rawVec = [bs.readUShort() / 0xFFFF, bs.readUShort() / 0xFFFF, bs.readUShort() / 0xFFFF]
 				output = NoeQuat3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)).toQuat().transpose()
-			elif compression == 0x50000: #LoadQuaternions13Bit RE3
-				rawBytes = [bs.readUByte(), bs.readUByte(), bs.readUByte(), bs.readUByte(), bs.readUByte()]
-				retrieved = (rawBytes[0] << 32) | (rawBytes[1] << 24) | (rawBytes[2] << 16) | (rawBytes[3] << 8) | (rawBytes[4] << 0)
-				rawVec = readPackedBitsVec3(retrieved, 13)
+			# 0x70000 - LoadQuaternions21Bit (RE2) / LoadQuaternions18Bit (RE3+)
+			elif compression == 0x70000:
+				if self.version <= 65:
+					rawVec = readPackedBitsVec3(bs.readUInt64(), 21)
+				else:
+					val = readBytesAsBigEndian(bs, 7)
+					rawVec = [((val >> 0) & 0x3FFFF) / 0x3FFFF, ((val >> 18) & 0x3FFFF) / 0x3FFFF, ((val >> 36) & 0x3FFFF) / 0x3FFFF]
 				output = NoeQuat3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)).toQuat().transpose()
-			elif compression == 0x60000: #LoadQuaternions16Bit RE3
-				#output = NoeQuat((0,0,0,1))
-				rawVec = [convertBits(bs.readUShort(), 16), convertBits(bs.readUShort(), 16), convertBits(bs.readUShort(), 16)]
-				output = NoeQuat3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)).toQuat().transpose()
-			elif (compression == 0x70000 and self.version <= 65) or (compression == 0x80000 and self.version >= 78): #LoadQuaternions21Bit RE2 and LoadQuaternions21Bit RE3
+			# 0x80000 - LoadQuaternions21Bit
+			elif compression == 0x80000:
 				rawVec = readPackedBitsVec3(bs.readUInt64(), 21)
 				output = NoeQuat3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)).toQuat().transpose()
-			elif compression == 0x70000 and self.version >= 78: #LoadQuaternions18Bit RE3
-				rawBytes = [bs.readUByte(), bs.readUByte(), bs.readUByte(), bs.readUByte(), bs.readUByte(), bs.readUByte(), bs.readUByte()]
-				retrieved = (rawBytes[0] << 48) | (rawBytes[1] << 40) | (rawBytes[2] << 32) | (rawBytes[3] << 24) | (rawBytes[4] << 16) | (rawBytes[5] << 8) | (rawBytes[6] << 0)
-				rawVec = readPackedBitsVec3(retrieved, 18)
-				output = NoeQuat3((unpacks.max.x * rawVec[0] + unpacks.min.x, unpacks.max.y * rawVec[1] + unpacks.min.y, unpacks.max.z * rawVec[2] + unpacks.min.z)).toQuat().transpose()
+			# 0xB0000/0xC0000 - LoadQuaternions3Component
+			elif compression == 0xB0000 or compression == 0xC0000:
+				output = NoeQuat3((bs.readFloat(), bs.readFloat(), bs.readFloat())).toQuat().transpose()
 			else:
 				print("Unknown Rotation type:", "0x"+'{:02X}'.format(compression))
 				output = NoeQuat((0,0,0,1))
