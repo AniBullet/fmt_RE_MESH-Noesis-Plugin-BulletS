@@ -4149,8 +4149,11 @@ class meshFile(object):
 					streamingData = None
 					relPath = ""
 					if self.rootDir:
-						rootLower = self.rootDir.lower().rstrip("\\/")
-						pathLower = self.path.lower()
+						#normalized find: rootDir is normpath'd (backslashes) while path may carry
+						#forward slashes from CLI spawn - mismatch left relPath empty, so streaming
+						#companion buffers never loaded and submeshes fell back to a short main buffer
+						rootLower = self.rootDir.lower().rstrip("\\/").replace("/", "\\")
+						pathLower = self.path.lower().replace("/", "\\")
 						rootIdx = pathLower.find(rootLower)
 						if rootIdx != -1:
 							relPath = self.path[rootIdx + len(rootLower) + 1:]
@@ -4167,37 +4170,69 @@ class meshFile(object):
 					
 					if streamingData is not None and len(streamingData) > 0:
 						bs.seek(afterMeshBufHdrPos)
-						for si in range(streamEntryCount):
-							sUnkn0 = bs.readUInt64()
-							sTotalBufSize = bs.readUInt()
-							sVertBufLen = bs.readUInt()
-							sMainVECount = bs.readUShort()
-							sVECount = bs.readUShort()
-							if sGameName in ("Pragmata", "MHS3", "RE9"):
-								bs.seek(16, 1)
-							sUnpaddedBufSize = bs.readUInt()
-							for _skip in range(10):
-								bs.readUInt()
+						if sGameName == "OniWS":
+							#OniWS ships the Pragmata serializer layout (cf. REE-Lib MeshSerializerVersion):
+							#80-byte buffer headers (64 RE4+ fields + 16 pad) laid out right after the
+							#80-byte main header, i.e. at afterMeshBufHdrPos. The generic SF6-era reads in
+							#else assume a 64-byte stride with a different field order and parse garbage
+							#here (empty buffers, OverflowError seeks) on streaming meshes.
+							for si in range(streamEntryCount):
+								bs.seek(afterMeshBufHdrPos + (80 * si))
+								sElemHdrOffs = bs.readUInt64()
+								bs.readUInt64() #vertexBufferOffset, equals streamInfoEntries[si][0]
+								bs.readUInt64() #shapekeyWeightBufferOffset
+								sTotalBufSize = bs.readUInt()
+								sVertBufLen = bs.readUInt()
+								sElemCountA = bs.readUShort()
+								bs.readUShort() #totalElementCount
+								sInfo = streamInfoEntries[si]
+								sVertBuf = streamingData[sInfo[0]:sInfo[0]+sVertBufLen]
+								sFaceBuf = streamingData[sInfo[0]+sVertBufLen:sInfo[0]+sTotalBufSize]
+								sVEH = []
+								if sElemHdrOffs > 0 and sElemCountA > 0:
+									savedP = bs.tell()
+									bs.seek(sElemHdrOffs)
+									for vi in range(sElemCountA):
+										sVEH.append([bs.readUShort(), bs.readUShort(), bs.readUInt()])
+									bs.seek(savedP)
+								streamingBufferList.append({
+									'vertexBuffer': sVertBuf,
+									'faceBuffer': sFaceBuf,
+									'vertElemHeaders': sVEH if sVEH else None,
+									'vertBuffSize': sVertBufLen,
+								})
+						else:
+							for si in range(streamEntryCount):
+								sUnkn0 = bs.readUInt64()
+								sTotalBufSize = bs.readUInt()
+								sVertBufLen = bs.readUInt()
+								sMainVECount = bs.readUShort()
+								sVECount = bs.readUShort()
+								if sGameName in ("Pragmata", "MHS3", "RE9"):
+									bs.seek(16, 1)
+								sUnpaddedBufSize = bs.readUInt()
+								for _skip in range(10):
+									bs.readUInt()
 							
-							sInfo = streamInfoEntries[si]
-							sVertBuf = streamingData[sInfo[0]:sInfo[0]+sVertBufLen]
-							sFaceBuf = streamingData[sInfo[0]+sVertBufLen:sInfo[0]+sUnpaddedBufSize]
+								sInfo = streamInfoEntries[si]
+								sVertBuf = streamingData[sInfo[0]:sInfo[0]+sVertBufLen]
+								sFaceBuf = streamingData[sInfo[0]+sVertBufLen:sInfo[0]+sUnpaddedBufSize]
 							
-							sVEH = []
-							if streamVEOffset > 0 and vertElemCountA > 0:
-								savedP = bs.tell()
-								paddedElemSize = ((8 * vertElemCountA + 15) // 16) * 16
-								bs.seek(streamVEOffset + (si * paddedElemSize))
-								for vi in range(vertElemCountA):
-									sVEH.append([bs.readUShort(), bs.readUShort(), bs.readUInt()])
-								bs.seek(savedP)
+								sVEH = []
+								if streamVEOffset > 0 and vertElemCountA > 0:
+									savedP = bs.tell()
+									paddedElemSize = ((8 * vertElemCountA + 15) // 16) * 16
+									bs.seek(streamVEOffset + (si * paddedElemSize))
+									for vi in range(vertElemCountA):
+										sVEH.append([bs.readUShort(), bs.readUShort(), bs.readUInt()])
+									bs.seek(savedP)
 							
-							streamingBufferList.append({
-								'vertexBuffer': sVertBuf,
-								'faceBuffer': sFaceBuf,
-								'vertElemHeaders': sVEH if sVEH else None,
-								'vertBuffSize': sVertBufLen,
-							})
+								streamingBufferList.append({
+									'vertexBuffer': sVertBuf,
+									'faceBuffer': sFaceBuf,
+									'vertElemHeaders': sVEH if sVEH else None,
+									'vertBuffSize': sVertBufLen,
+								})
 						
 						print("Loaded", len(streamingBufferList), "streaming buffer(s) from streaming file")
 						print("  streamVEOffset:", streamVEOffset, " vertElemCountA:", vertElemCountA)
